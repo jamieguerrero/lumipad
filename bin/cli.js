@@ -5,55 +5,55 @@ import { scaffold } from '../src/scaffold.js';
 import { deploy, deployExisting, removeCustomDomain, destroyProject, getDeployedUrl } from '../src/deploy.js';
 import { getConfig, setConfig, getConfigPath, getGitHubUsername } from '../src/config.js';
 import chalk from 'chalk';
+import fs from 'fs';
+import path from 'path';
 
 const program = new Command();
 
 program
   .name('lumilipad')
-  .description('Scaffold and deploy static sites to Netlify')
+  .description('Deploy sites to Netlify')
   .version('0.1.0');
 
-// sa = "to/towards" — deploy a new project
+// sa = "to/towards" — the one deploy command
 // aliases: deploy
 program
   .command('sa')
   .alias('deploy')
-  .description('Scaffold and deploy a new project')
-  .argument('<project-name>', 'Project name')
-  .action(async (projectName) => {
-    try {
-      // Check if GitHub username is configured
-      const ghUser = await getGitHubUsername();
-      if (!ghUser) {
-        console.error(chalk.red('\n✗ GitHub username not configured.'));
-        console.error(chalk.yellow('  Run: lumilipad config github.username <your-username>\n'));
-        process.exit(1);
-      }
-
-      console.log(chalk.blue(`\n✈️  Lumilipad launching: ${projectName}\n`));
-
-      const projectPath = await scaffold(projectName);
-      const deployedUrl = await deploy(projectPath, projectName);
-
-      console.log(chalk.green(`\n✓ ${projectName} is live! 🚀`));
-      console.log(chalk.cyan(`  ${deployedUrl}\n`));
-    } catch (error) {
-      console.error(chalk.red(`\n✗ Error: ${error.message}\n`));
-      process.exit(1);
-    }
-  });
-
-// ilagay = "to put/place" — deploy an existing directory
-// aliases: push
-program
-  .command('ilagay')
-  .alias('push')
-  .description('Deploy an existing directory to Netlify')
-  .argument('<project-name>', 'Project name (used for Netlify site and subdomain)')
-  .option('-d, --dir <path>', 'Directory to deploy', '.')
+  .description('Deploy a project to Netlify (scaffolds if new, deploys if exists)')
+  .argument('[project-name]', 'Project name (optional for --ssr in current directory)')
+  .option('--ssr', 'Deploy SSR app (uses npx netlify deploy)')
+  .option('--preview', 'Create preview deploy instead of production (SSR only)')
+  .option('-d, --dir <path>', 'Directory to deploy (for existing projects)')
   .option('--no-github', 'Skip creating a GitHub repo')
   .action(async (projectName, options) => {
     try {
+      const { execa } = await import('execa');
+      
+      // SSR mode: just run netlify deploy
+      if (options.ssr) {
+        const deployDir = options.dir || '.';
+        console.log(chalk.blue(`\n✈️  ${options.preview ? 'Preview' : 'Production'} SSR deploy starting...\n`));
+        
+        const args = ['netlify', 'deploy'];
+        if (!options.preview) {
+          args.push('--prod');
+        }
+        
+        await execa('npx', args, { 
+          stdio: 'inherit',
+          cwd: path.resolve(deployDir)
+        });
+        return;
+      }
+      
+      // Non-SSR modes require a project name
+      if (!projectName) {
+        console.error(chalk.red('\n✗ Project name required (unless using --ssr)\n'));
+        process.exit(1);
+      }
+      
+      // Check if GitHub username is configured
       const ghUser = await getGitHubUsername();
       if (!ghUser && options.github) {
         console.error(chalk.red('\n✗ GitHub username not configured.'));
@@ -61,13 +61,31 @@ program
         console.error(chalk.yellow('  Or use --no-github to skip repo creation\n'));
         process.exit(1);
       }
-
-      console.log(chalk.blue(`\n✈️  Lumilipad deploying: ${projectName}\n`));
-
-      const deployedUrl = await deployExisting(options.dir, projectName, { createGitHubRepo: options.github });
-
-      console.log(chalk.green(`\n✓ ${projectName} is live! 🚀`));
-      console.log(chalk.cyan(`  ${deployedUrl}\n`));
+      
+      // Check if project/directory exists
+      const targetDir = options.dir || projectName;
+      const dirExists = fs.existsSync(path.resolve(targetDir));
+      
+      if (dirExists) {
+        // Deploy existing directory
+        console.log(chalk.blue(`\n✈️  Lumilipad deploying existing: ${projectName}\n`));
+        const deployedUrl = await deployExisting(targetDir, projectName, { createGitHubRepo: options.github });
+        console.log(chalk.green(`\n✓ ${projectName} is live! 🚀`));
+        console.log(chalk.cyan(`  ${deployedUrl}\n`));
+      } else {
+        // Scaffold new project
+        if (!ghUser) {
+          console.error(chalk.red('\n✗ GitHub username not configured.'));
+          console.error(chalk.yellow('  Run: lumilipad config github.username <your-username>\n'));
+          process.exit(1);
+        }
+        
+        console.log(chalk.blue(`\n✈️  Lumilipad launching new: ${projectName}\n`));
+        const projectPath = await scaffold(projectName);
+        const deployedUrl = await deploy(projectPath, projectName);
+        console.log(chalk.green(`\n✓ ${projectName} is live! 🚀`));
+        console.log(chalk.cyan(`  ${deployedUrl}\n`));
+      }
     } catch (error) {
       console.error(chalk.red(`\n✗ Error: ${error.message}\n`));
       process.exit(1);
