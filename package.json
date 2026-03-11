@@ -1,10 +1,10 @@
 {
-  "name": "@jamieguerrero/lumipad",
+  "name": "@jamieguerrero/lumilipad",
   "version": "0.1.0",
   "description": "Scaffold and deploy static sites to Netlify with one command",
   "type": "module",
   "bin": {
-    "lumipad": "./bin/cli.js"
+    "lumilipad": "./bin/cli.js"
   },
   "scripts": {
     "dev": "node bin/cli.js",
@@ -31,6 +31,6 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/jamieguerrero/lumipad.git"
+    "url": "https://github.com/jamieguerrero/lumilipad.git"
   }
 }

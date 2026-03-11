@@ -2,13 +2,14 @@
 
 import { Command } from 'commander';
 import { scaffold } from '../src/scaffold.js';
-import { deploy, removeCustomDomain, destroyProject } from '../src/deploy.js';
+import { deploy, deployExisting, removeCustomDomain, destroyProject, getDeployedUrl } from '../src/deploy.js';
+import { getConfig, setConfig, getConfigPath, getGitHubUsername } from '../src/config.js';
 import chalk from 'chalk';
 
 const program = new Command();
 
 program
-  .name('lumipad')
+  .name('lumilipad')
   .description('Scaffold and deploy static sites to Netlify')
   .version('0.1.0');
 
@@ -21,13 +22,52 @@ program
   .argument('<project-name>', 'Project name')
   .action(async (projectName) => {
     try {
-      console.log(chalk.blue(`\n✈️  Lumipad launching: ${projectName}\n`));
+      // Check if GitHub username is configured
+      const ghUser = await getGitHubUsername();
+      if (!ghUser) {
+        console.error(chalk.red('\n✗ GitHub username not configured.'));
+        console.error(chalk.yellow('  Run: lumilipad config github.username <your-username>\n'));
+        process.exit(1);
+      }
+
+      console.log(chalk.blue(`\n✈️  Lumilipad launching: ${projectName}\n`));
 
       const projectPath = await scaffold(projectName);
-      await deploy(projectPath, projectName);
+      const deployedUrl = await deploy(projectPath, projectName);
 
       console.log(chalk.green(`\n✓ ${projectName} is live! 🚀`));
-      console.log(chalk.cyan(`  https://${projectName}.jamieguerrero.com\n`));
+      console.log(chalk.cyan(`  ${deployedUrl}\n`));
+    } catch (error) {
+      console.error(chalk.red(`\n✗ Error: ${error.message}\n`));
+      process.exit(1);
+    }
+  });
+
+// ilagay = "to put/place" — deploy an existing directory
+// aliases: push
+program
+  .command('ilagay')
+  .alias('push')
+  .description('Deploy an existing directory to Netlify')
+  .argument('<project-name>', 'Project name (used for Netlify site and subdomain)')
+  .option('-d, --dir <path>', 'Directory to deploy', '.')
+  .option('--no-github', 'Skip creating a GitHub repo')
+  .action(async (projectName, options) => {
+    try {
+      const ghUser = await getGitHubUsername();
+      if (!ghUser && options.github) {
+        console.error(chalk.red('\n✗ GitHub username not configured.'));
+        console.error(chalk.yellow('  Run: lumilipad config github.username <your-username>'));
+        console.error(chalk.yellow('  Or use --no-github to skip repo creation\n'));
+        process.exit(1);
+      }
+
+      console.log(chalk.blue(`\n✈️  Lumilipad deploying: ${projectName}\n`));
+
+      const deployedUrl = await deployExisting(options.dir, projectName, { createGitHubRepo: options.github });
+
+      console.log(chalk.green(`\n✓ ${projectName} is live! 🚀`));
+      console.log(chalk.cyan(`  ${deployedUrl}\n`));
     } catch (error) {
       console.error(chalk.red(`\n✗ Error: ${error.message}\n`));
       process.exit(1);
@@ -68,6 +108,87 @@ program
       console.error(chalk.red(`\n✗ Error: ${error.message}\n`));
       process.exit(1);
     }
+  });
+
+// config — view or set configuration
+program
+  .command('config')
+  .description('View or set configuration')
+  .argument('[key]', 'Config key (e.g. github.username, netlify.customDomain)')
+  .argument('[value]', 'Value to set')
+  .action(async (key, value) => {
+    try {
+      if (!key) {
+        // Show all config
+        const config = await getConfig();
+        console.log(chalk.blue('\n⚙️  Lumilipad Configuration\n'));
+        console.log(chalk.gray(`   Config file: ${getConfigPath()}\n`));
+        console.log(JSON.stringify(config, null, 2));
+        console.log();
+      } else if (!value) {
+        // Show specific key
+        const config = await getConfig();
+        const keys = key.split('.');
+        let val = config;
+        for (const k of keys) {
+          val = val?.[k];
+        }
+        if (val === undefined || val === null) {
+          console.log(chalk.yellow(`\n${key} is not set\n`));
+        } else {
+          console.log(chalk.green(`\n${key} = ${val}\n`));
+        }
+      } else {
+        // Set value
+        await setConfig(key, value);
+        console.log(chalk.green(`\n✓ Set ${key} = ${value}\n`));
+      }
+    } catch (error) {
+      console.error(chalk.red(`\n✗ Error: ${error.message}\n`));
+      process.exit(1);
+    }
+  });
+
+// init — interactive setup
+program
+  .command('init')
+  .description('Interactive setup for lumilipad')
+  .action(async () => {
+    const inquirer = (await import('inquirer')).default;
+    
+    console.log(chalk.blue('\n✈️  Lumilipad Setup\n'));
+    
+    const answers = await inquirer.prompt([
+      {
+        type: 'input',
+        name: 'githubUsername',
+        message: 'GitHub username:',
+        validate: (input) => input.length > 0 || 'Required',
+      },
+      {
+        type: 'input',
+        name: 'customDomain',
+        message: 'Custom domain base (e.g. yourdomain.com, leave empty to skip):',
+      },
+      {
+        type: 'input',
+        name: 'gitEmail',
+        message: 'Git email for commits (leave empty for default):',
+      },
+    ]);
+    
+    await setConfig('github.username', answers.githubUsername);
+    
+    if (answers.customDomain) {
+      await setConfig('netlify.customDomain', answers.customDomain);
+    }
+    
+    if (answers.gitEmail) {
+      await setConfig('git.email', answers.gitEmail);
+    }
+    
+    console.log(chalk.green('\n✓ Configuration saved!\n'));
+    console.log(chalk.gray(`  Config file: ${getConfigPath()}\n`));
   });
 
 program.parse();

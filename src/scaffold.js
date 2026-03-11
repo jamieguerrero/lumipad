@@ -57,7 +57,7 @@ export async function scaffold(projectName) {
   // Create README
   await fs.writeFile(
     path.join(projectPath, 'README.md'),
-    `# ${title}\n\nCreated with lumipad ✈️\n`
+    `# ${title}\n\nCreated with lumilipad ✈️\n`
   );
 
   spinner.succeed(chalk.green('Project scaffolded'));
